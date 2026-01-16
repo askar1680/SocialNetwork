@@ -2,6 +2,7 @@ package main
 
 import (
 	"AwesomeProject/internal/store"
+	"docs"
 	"fmt"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"

@@ -4,9 +4,10 @@ import (
 	"AwesomeProject/internal/store"
 	"context"
 	"errors"
-	"github.com/go-chi/chi/v5"
 	"net/http"
 	"strconv"
+
+	"github.com/go-chi/chi/v5"
 )
 
 type postKey string

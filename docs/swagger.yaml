@@ -1,4 +1,18 @@
 basePath: /v1
+definitions:
+  store.User:
+    properties:
+      created_at:
+        type: string
+      email:
+        type: string
+      id:
+        type: integer
+      is_active:
+        type: boolean
+      username:
+        type: string
+    type: object
 host: localhost:8080
 info:
   contact:
@@ -12,7 +26,37 @@ info:
   termsOfService: http://swagger.io/terms/
   title: GopherSocial API
   version: "1.0"
-paths: {}
+paths:
+  /users/{id}:
+    get:
+      consumes:
+      - application/json
+      description: Fetches a user profile by ID
+      parameters:
+      - description: User ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/store.User'
+        "400":
+          description: Bad Request
+          schema: {}
+        "404":
+          description: Not Found
+          schema: {}
+        "500":
+          description: Internal Server Error
+          schema: {}
+      summary: Fetches a user profile
+      tags:
+      - users
 securityDefinitions:
   ApiKeyAuth:
     in: header

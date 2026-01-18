@@ -4,10 +4,12 @@ import (
 	"AwesomeProject/internal/db"
 	"AwesomeProject/internal/env"
 	"AwesomeProject/internal/store"
-	"log"
+	"time"
+
+	"go.uber.org/zap"
 )
 
-const version = "0.0.1"
+const version = "0.0.2"
 
 //	@title			GopherSocial API
 //	@version		1.0
@@ -39,16 +41,27 @@ func main() {
 		address: env.GetString("ADDRESS", ":8080"),
 		db:      dbConfig,
 		env:     "local",
+		mail: mailConfig{
+			exp: time.Hour * 24 * 3,
+		},
+		apiURL: env.GetString("EXTERNAL_URL", "localhost:8081"),
 	}
+	logger := zap.Must(zap.NewProduction()).Sugar()
+	defer logger.Sync()
+
 	_db, err := db.New(cfg.db.address, cfg.db.maxOpenConnections, cfg.db.maxIdleConnections, cfg.db.maxIdleTime)
 	if err != nil {
-		log.Fatal(err)
+		logger.Fatal(err)
 		return
 	}
 	defer _db.Close()
-	log.Println("Successfully connected to database")
+	logger.Info("Successfully connected to database")
 	_store := store.NewStorage(_db)
-	app := &application{cfg, &_store}
+	app := &application{
+		config: cfg,
+		store:  &_store,
+		logger: logger,
+	}
 	mux := app.mount()
-	log.Fatal(app.run(mux))
+	logger.Fatal(app.run(mux))
 }

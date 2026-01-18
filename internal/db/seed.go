@@ -3,6 +3,7 @@ package db
 import (
 	"AwesomeProject/internal/store"
 	"context"
+	"database/sql"
 	"fmt"
 	"math/rand"
 	"strconv"
@@ -133,11 +134,12 @@ var randomComments = []string{
 	"Thanks for sharing this!",
 }
 
-func Seed(store store.Storage) {
+func Seed(store store.Storage, db *sql.DB) {
 	ctx := context.Background()
 	users := generateUsers(100)
+	tx, _ := db.BeginTx(ctx, nil)
 	for _, user := range users {
-		_ = store.Users.Create(ctx, user)
+		_ = store.Users.Create(ctx, tx, user)
 	}
 	//
 	posts := generatePosts(200, users)
@@ -157,7 +159,6 @@ func generateUsers(count int) []*store.User {
 		users[i] = &store.User{
 			Username: usernames[i%len(usernames)] + strconv.Itoa(i),
 			Email:    usernames[i%len(usernames)] + strconv.Itoa(i) + "@gmail.com",
-			Password: "123",
 		}
 	}
 	return users

@@ -1,27 +1,35 @@
 package main
 
 import (
+	"AwesomeProject/docs"
 	"AwesomeProject/internal/store"
-	"docs"
 	"fmt"
+	"net/http"
+	"time"
+
+	"go.uber.org/zap"
+
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	httpSwagger "github.com/swaggo/http-swagger/v2"
-	"github.com/swaggo/swag/example/basic/docs"
-	"log"
-	"net/http"
-	"time"
 )
 
 type application struct {
 	config config
 	store  *store.Storage
+	logger *zap.SugaredLogger
 }
 
 type config struct {
 	address string
 	db      dbConfig
 	env     string
+	apiURL  string
+	mail    mailConfig
+}
+
+type mailConfig struct {
+	exp time.Duration
 }
 
 type dbConfig struct {
@@ -64,10 +72,13 @@ func (app *application) mount() *chi.Mux {
 				r.Put("/follow", app.followUserHandler)
 				r.Put("/unfollow", app.unfollowUserHandler)
 			})
+			r.Group(func(r chi.Router) {
+				r.Get("/feed", app.getUserFeedHandler)
+			})
 		})
-
-		r.Group(func(r chi.Router) {
-			r.Get("/feed", app.getUserFeedHandler)
+		r.Route("/authentication", func(r chi.Router) {
+			r.Post("/user", app.registerUserHandler)
+			r.Put("/activate/{token}", app.activateUserHandler)
 		})
 	})
 	return r
@@ -75,6 +86,9 @@ func (app *application) mount() *chi.Mux {
 
 func (app *application) run(mux http.Handler) error {
 	docs.SwaggerInfo.Version = version
+	docs.SwaggerInfo.Host = app.config.apiURL
+	docs.SwaggerInfo.BasePath = "/v1"
+
 	srv := &http.Server{
 		Addr:         app.config.address,
 		Handler:      mux,
@@ -82,6 +96,6 @@ func (app *application) run(mux http.Handler) error {
 		ReadTimeout:  10 * time.Second,
 		IdleTimeout:  time.Minute,
 	}
-	log.Printf("Starting server on %s", app.config.address)
+	app.logger.Infof("Starting server on %s", app.config.address)
 	return srv.ListenAndServe()
 }

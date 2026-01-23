@@ -2,6 +2,8 @@ package main
 
 import (
 	"AwesomeProject/docs"
+	"AwesomeProject/internal/auth"
+	"AwesomeProject/internal/mailer"
 	"AwesomeProject/internal/store"
 	"fmt"
 	"net/http"
@@ -18,18 +20,48 @@ type application struct {
 	config config
 	store  *store.Storage
 	logger *zap.SugaredLogger
+	mailer mailer.Client
+	auth   auth.Authenticator
 }
 
 type config struct {
-	address string
-	db      dbConfig
-	env     string
-	apiURL  string
-	mail    mailConfig
+	address     string
+	db          dbConfig
+	env         string
+	apiURL      string
+	mail        mailConfig
+	frontendURL string
+	auth        authConfig
+}
+
+type authConfig struct {
+	basic basicConfig
+	token tokenConfig
+}
+
+type tokenConfig struct {
+	secret string
+	exp    time.Duration
+	iss    string
+}
+type basicConfig struct {
+	username string
+	password string
 }
 
 type mailConfig struct {
-	exp time.Duration
+	fromEmail string
+	sendGrid  sendGridConfig
+	mailTrap  mailTrapConfig
+	exp       time.Duration
+}
+
+type sendGridConfig struct {
+	apiKey string
+}
+
+type mailTrapConfig struct {
+	apiKey string
 }
 
 type dbConfig struct {
@@ -50,10 +82,10 @@ func (app *application) mount() *chi.Mux {
 	r.Use(middleware.Timeout(60 * time.Second))
 
 	r.Route("/v1", func(r chi.Router) {
-		r.Get("/health", app.healthCheckHandler)
+		r.With(app.BasicAuthMiddleware()).Get("/health", app.healthCheckHandler)
 
 		docsUrl := fmt.Sprintf("%s/swagger/doc.json", app.config.address)
-		r.Get("/swagger/*", httpSwagger.Handler(httpSwagger.URL(docsUrl)))
+		r.With(app.BasicAuthMiddleware()).Get("/swagger/*", httpSwagger.Handler(httpSwagger.URL(docsUrl)))
 
 		r.Route("/posts", func(r chi.Router) {
 			r.Post("/", app.createPostHandler)
@@ -79,6 +111,7 @@ func (app *application) mount() *chi.Mux {
 		r.Route("/authentication", func(r chi.Router) {
 			r.Post("/user", app.registerUserHandler)
 			r.Put("/activate/{token}", app.activateUserHandler)
+			r.Post("/token", app.createTokenHandler)
 		})
 	})
 	return r

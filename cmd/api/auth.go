@@ -1,11 +1,17 @@
 package main
 
 import (
+	"AwesomeProject/internal/mailer"
 	"AwesomeProject/internal/store"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"fmt"
+	"github.com/golang-jwt/jwt/v5"
 	"net/http"
+	"time"
+
+	"go.uber.org/zap"
 
 	"github.com/go-chi/chi/v5"
 
@@ -18,7 +24,7 @@ var (
 
 type UserWithToken struct {
 	*store.User
-	token string `json:"token"`
+	Token string `json:"token"`
 }
 
 type RegisterUserPayload struct {
@@ -41,7 +47,6 @@ func (app *application) registerUserHandler(w http.ResponseWriter, r *http.Reque
 	user := &store.User{
 		Username: payload.Username,
 		Email:    payload.Email,
-		// Password: payload.Password,
 	}
 
 	// hash the password
@@ -75,7 +80,28 @@ func (app *application) registerUserHandler(w http.ResponseWriter, r *http.Reque
 
 	userWithToken := UserWithToken{
 		User:  user,
-		token: plainToken,
+		Token: plainToken,
+	}
+
+	// send email
+	isProdEnv := app.config.env == "production"
+	activationURL := fmt.Sprintf("%s/confirm/%s", app.config.frontendURL, plainToken)
+	vars := struct {
+		Username      string
+		ActivationURL string
+	}{
+		Username:      userWithToken.Username,
+		ActivationURL: activationURL,
+	}
+	err = app.mailer.Send(mailer.UserWelcomeTemplate, user.Username, user.Email, vars, !isProdEnv)
+	if err != nil {
+		app.logger.Error("failed to send welcome email", zap.Error(err))
+		// rollback if user creation fails
+		if err = app.store.Users.Delete(ctx, user.ID); err != nil {
+			app.logger.Error("failed to delete user", zap.Error(err))
+		}
+		app.internalServerErrorHandler(w, r, err)
+		return
 	}
 
 	if err := app.jsonResponse(w, http.StatusCreated, userWithToken); err != nil {
@@ -89,13 +115,59 @@ func (app *application) activateUserHandler(w http.ResponseWriter, r *http.Reque
 	if err != nil {
 		switch {
 		case errors.Is(err, ErrUserNotFound):
-			app.badRequestResponse(w, r, err)
+			app.notFoundResponse(w, r, err)
 		default:
 			app.internalServerErrorHandler(w, r, err)
 		}
 		return
 	}
 	if err := app.jsonResponse(w, http.StatusNoContent, nil); err != nil {
+		app.internalServerErrorHandler(w, r, err)
+	}
+}
+
+type CreateUserTokenPayload struct {
+	Email    string `json:"email" validate:"required,email,max=255"`
+	Password string `json:"password" validate:"required,min=3,max=72"`
+}
+
+func (app *application) createTokenHandler(w http.ResponseWriter, r *http.Request) {
+	// parse payload credentials
+	// fetch the user
+	// generate the token -> add claims
+	// send it to the client
+
+	var payload CreateUserTokenPayload
+	if err := readJSON(w, r, &payload); err != nil {
+		app.badRequestResponse(w, r, err)
+		return
+	}
+	if err := Validate.Struct(payload); err != nil {
+		app.badRequestResponse(w, r, err)
+		return
+	}
+	user, err := app.store.Users.GetByEmail(r.Context(), payload.Email)
+	if err != nil {
+		// TODO: add something is wrong error
+		app.badRequestResponse(w, r, err)
+		return
+	}
+
+	claims := jwt.MapClaims{
+		"sub": user.ID,
+		"exp": time.Now().Add(app.config.auth.token.exp),
+		"iat": time.Now().Unix(),
+		"nbf": time.Now().Unix(),
+		"iss": app.config.auth.token.iss,
+		"aud": app.config.auth.token.iss,
+	}
+	token, err := app.auth.GenerateToken(claims)
+	if err != nil {
+		app.internalServerErrorHandler(w, r, err)
+		return
+	}
+
+	if err := app.jsonResponse(w, http.StatusCreated, token); err != nil {
 		app.internalServerErrorHandler(w, r, err)
 	}
 }

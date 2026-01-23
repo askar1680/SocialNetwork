@@ -1,8 +1,10 @@
 package main
 
 import (
+	"AwesomeProject/internal/auth"
 	"AwesomeProject/internal/db"
 	"AwesomeProject/internal/env"
+	"AwesomeProject/internal/mailer"
 	"AwesomeProject/internal/store"
 	"time"
 
@@ -40,11 +42,30 @@ func main() {
 	cfg := config{
 		address: env.GetString("ADDRESS", ":8080"),
 		db:      dbConfig,
-		env:     "local",
+		env:     env.GetString("ENV", "development"),
 		mail: mailConfig{
+			fromEmail: env.GetString("FROM_EMAIL", ""),
+			sendGrid: sendGridConfig{
+				apiKey: env.GetString("SENDGRID_API_KEY", ""),
+			},
+			mailTrap: mailTrapConfig{
+				apiKey: env.GetString("MAIL_TRAP_API_KEY", ""),
+			},
 			exp: time.Hour * 24 * 3,
 		},
-		apiURL: env.GetString("EXTERNAL_URL", "localhost:8081"),
+		apiURL:      env.GetString("EXTERNAL_URL", "localhost:8081"),
+		frontendURL: env.GetString("FRONTEND_URL", "http://localhost:4000"),
+		auth: authConfig{
+			basic: basicConfig{
+				username: env.GetString("AUTH_USERNAME", ""),
+				password: env.GetString("AUTH_PASSWORD", ""),
+			},
+			token: tokenConfig{
+				secret: env.GetString("AUTH_SECRET", ""),
+				exp:    time.Hour * 24 * 3,
+				iss:    "social network",
+			},
+		},
 	}
 	logger := zap.Must(zap.NewProduction()).Sugar()
 	defer logger.Sync()
@@ -57,10 +78,20 @@ func main() {
 	defer _db.Close()
 	logger.Info("Successfully connected to database")
 	_store := store.NewStorage(_db)
+
+	// mailer := mailer.NewSendGridMailer(cfg.mail.sendGrid.apiKey, cfg.mail.fromEmail)
+	mailer := mailer.NewMailtrapMailer(cfg.mail.mailTrap.apiKey, cfg.mail.fromEmail)
+	if err != nil {
+		logger.Fatal(err)
+	}
+
+	jwtAuthenticator := auth.NewJWTAuthenticator(cfg.auth.token.secret, cfg.auth.token.iss, cfg.auth.token.iss)
 	app := &application{
 		config: cfg,
 		store:  &_store,
 		logger: logger,
+		mailer: mailer,
+		auth:   jwtAuthenticator,
 	}
 	mux := app.mount()
 	logger.Fatal(app.run(mux))

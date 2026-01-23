@@ -94,6 +94,29 @@ func (store *UserStore) GetByID(ctx context.Context, id int64) (*User, error) {
 	return &user, nil
 }
 
+func (store *UserStore) GetByEmail(ctx context.Context, email string) (*User, error) {
+	query := `SELECT id, username, email, password, created_at FROM users WHERE email = $1 AND is_activated = true`
+	var (
+		user      User
+		createdAt time.Time
+	)
+
+	ctx, cancel := context.WithTimeout(ctx, QueryTimeOutDuration)
+	defer cancel()
+
+	err := store.db.QueryRow(query, email).Scan(&user.ID, &user.Username, &user.Email, &user.Password.hash, &createdAt)
+	if err != nil {
+		switch {
+		case errors.Is(err, sql.ErrNoRows):
+			return nil, ErrorNotFound
+		default:
+			return nil, err
+		}
+	}
+	user.CreatedAt = createdAt.Format(time.RFC3339)
+	return &user, nil
+}
+
 func (store *UserStore) CreateAndInvite(
 	ctx context.Context,
 	user *User,
@@ -128,10 +151,22 @@ func (store *UserStore) Activate(ctx context.Context, token string) error {
 	})
 }
 
+func (store *UserStore) Delete(ctx context.Context, id int64) error {
+	return withTx(store.db, ctx, func(tx *sql.Tx) error {
+		if err := store.delete(ctx, tx, id); err != nil {
+			return err
+		}
+		if err := store.deleteUserInvitations(ctx, tx, id); err != nil {
+			return err
+		}
+		return nil
+	})
+}
+
 func (store *UserStore) getUserFromInvitation(ctx context.Context, tx *sql.Tx, token string, expiry time.Time) (*User, error) {
 	query := `
-		SELECT u.id, u.username, u.email, u.created_at, u.isActive FROM users u
-		JOIN users_invitations ui ON u.id = ui.user_id
+		SELECT u.id, u.username, u.email, u.created_at, u.is_activated FROM users u
+		JOIN user_invitations ui ON u.id = ui.user_id
 		WHERE ui.token = $1 AND ui.expiry > $2
 	`
 	ctx, cancel := context.WithTimeout(ctx, QueryTimeOutDuration)
@@ -186,7 +221,7 @@ func (store *UserStore) createUserInvitation(
 
 func (store *UserStore) update(ctx context.Context, tx *sql.Tx, user *User) error {
 	query := `
-		UPDATE users SET username = $1, email = $2, is_active = $3 WHERE id = $4
+		UPDATE users SET username = $1, email = $2, is_activated = $3 WHERE id = $4
 	`
 	ctx, cancel := context.WithTimeout(ctx, QueryTimeOutDuration)
 	defer cancel()
@@ -202,6 +237,18 @@ func (store *UserStore) deleteUserInvitations(ctx context.Context, tx *sql.Tx, i
 	query := `DELETE FROM user_invitations WHERE user_id = $1`
 	ctx, cancel := context.WithTimeout(ctx, QueryTimeOutDuration)
 	defer cancel()
+	_, err := tx.ExecContext(ctx, query, id)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (store *UserStore) delete(ctx context.Context, tx *sql.Tx, id int64) error {
+	query := `DELETE FROM users WHERE id = $1`
+	ctx, cancel := context.WithTimeout(ctx, QueryTimeOutDuration)
+	defer cancel()
+
 	_, err := tx.ExecContext(ctx, query, id)
 	if err != nil {
 		return err

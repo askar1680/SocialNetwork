@@ -31,11 +31,11 @@ func (app *application) createPostHandler(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	// TODO: fix UserId
+	user := getUserFromContext(r)
 	post := &store.Post{
 		Title:   payload.Title,
 		Content: payload.Content,
-		UserID:  1,
+		UserID:  user.ID,
 		Tags:    payload.Tags,
 	}
 	ctx := r.Context()

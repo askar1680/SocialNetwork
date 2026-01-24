@@ -1,17 +1,14 @@
 package main
 
 import (
-	"AwesomeProject/internal/mailer"
 	"AwesomeProject/internal/store"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
-	"fmt"
-	"github.com/golang-jwt/jwt/v5"
 	"net/http"
 	"time"
 
-	"go.uber.org/zap"
+	"github.com/golang-jwt/jwt/v5"
 
 	"github.com/go-chi/chi/v5"
 
@@ -84,25 +81,26 @@ func (app *application) registerUserHandler(w http.ResponseWriter, r *http.Reque
 	}
 
 	// send email
-	isProdEnv := app.config.env == "production"
-	activationURL := fmt.Sprintf("%s/confirm/%s", app.config.frontendURL, plainToken)
-	vars := struct {
-		Username      string
-		ActivationURL string
-	}{
-		Username:      userWithToken.Username,
-		ActivationURL: activationURL,
-	}
-	err = app.mailer.Send(mailer.UserWelcomeTemplate, user.Username, user.Email, vars, !isProdEnv)
-	if err != nil {
-		app.logger.Error("failed to send welcome email", zap.Error(err))
-		// rollback if user creation fails
-		if err = app.store.Users.Delete(ctx, user.ID); err != nil {
-			app.logger.Error("failed to delete user", zap.Error(err))
-		}
-		app.internalServerErrorHandler(w, r, err)
-		return
-	}
+	// TODO: email sending is not working without activating mailer accounts
+	//isProdEnv := app.config.env == "production"
+	//activationURL := fmt.Sprintf("%s/confirm/%s", app.config.frontendURL, plainToken)
+	//vars := struct {
+	//	Username      string
+	//	ActivationURL string
+	//}{
+	//	Username:      userWithToken.Username,
+	//	ActivationURL: activationURL,
+	//}
+	//err = app.mailer.Send(mailer.UserWelcomeTemplate, user.Username, user.Email, vars, !isProdEnv)
+	//if err != nil {
+	//	app.logger.Error("failed to send welcome email", zap.Error(err))
+	//	// rollback if user creation fails
+	//	if err = app.store.Users.Delete(ctx, user.ID); err != nil {
+	//		app.logger.Error("failed to delete user", zap.Error(err))
+	//	}
+	//	app.internalServerErrorHandler(w, r, err)
+	//	return
+	//}
 
 	if err := app.jsonResponse(w, http.StatusCreated, userWithToken); err != nil {
 		app.internalServerErrorHandler(w, r, err)
@@ -148,8 +146,17 @@ func (app *application) createTokenHandler(w http.ResponseWriter, r *http.Reques
 	}
 	user, err := app.store.Users.GetByEmail(r.Context(), payload.Email)
 	if err != nil {
-		// TODO: add something is wrong error
-		app.badRequestResponse(w, r, err)
+		switch {
+		case errors.Is(err, store.ErrorNotFound):
+			app.unauthorizedErrorResponse(w, r, err)
+		default:
+			app.internalServerErrorHandler(w, r, err)
+		}
+		return
+	}
+
+	if err := user.Password.Compare(payload.Password); err != nil {
+		app.unauthorizedErrorResponse(w, r, err)
 		return
 	}
 

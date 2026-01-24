@@ -30,6 +30,10 @@ type password struct {
 	hash []byte
 }
 
+func (p *password) Compare(text string) error {
+	return bcrypt.CompareHashAndPassword(p.hash, []byte(text))
+}
+
 func (p *password) Set(text string) error {
 	hash, err := bcrypt.GenerateFromPassword([]byte(text), bcrypt.DefaultCost)
 	if err != nil {
@@ -72,7 +76,7 @@ func (store *UserStore) Create(ctx context.Context, tx *sql.Tx, user *User) erro
 }
 
 func (store *UserStore) GetByID(ctx context.Context, id int64) (*User, error) {
-	query := `SELECT id, username, email, created_at FROM users WHERE id = $1`
+	query := `SELECT id, username, email, password, created_at FROM users WHERE id = $1`
 	var (
 		user      User
 		createdAt time.Time
@@ -81,7 +85,7 @@ func (store *UserStore) GetByID(ctx context.Context, id int64) (*User, error) {
 	ctx, cancel := context.WithTimeout(ctx, QueryTimeOutDuration)
 	defer cancel()
 
-	err := store.db.QueryRow(query, id).Scan(&user.ID, &user.Username, &user.Email, &createdAt)
+	err := store.db.QueryRow(query, id).Scan(&user.ID, &user.Username, &user.Email, &user.Password.hash, &createdAt)
 	if err != nil {
 		switch {
 		case errors.Is(err, sql.ErrNoRows):

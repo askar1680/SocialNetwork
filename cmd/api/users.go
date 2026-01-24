@@ -4,6 +4,7 @@ import (
 	"AwesomeProject/internal/store"
 	"context"
 	"database/sql"
+	"errors"
 	"net/http"
 	"strconv"
 
@@ -13,10 +14,6 @@ import (
 type userKey string
 
 const userCtxKey userKey = "user"
-
-type FollowUser struct {
-	UserID int64 `json:"user_id"`
-}
 
 // GetUser godoc
 //
@@ -40,15 +37,14 @@ func (app *application) getUserHandler(w http.ResponseWriter, r *http.Request) {
 
 func (app *application) followUserHandler(w http.ResponseWriter, r *http.Request) {
 	followedUser := getUserFromContext(r)
-	// revert back to auth userID from ctx
-	var payload FollowUser
-	if err := readJSON(w, r, &payload); err != nil {
+	followedID, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil {
 		app.badRequestResponse(w, r, err)
 		return
 	}
 
 	ctx := r.Context()
-	err := app.store.Followers.Follow(ctx, followedUser.ID, payload.UserID)
+	err = app.store.Followers.Follow(ctx, followedUser.ID, followedID)
 	if err != nil {
 		app.internalServerErrorHandler(w, r, err)
 		return
@@ -60,15 +56,14 @@ func (app *application) followUserHandler(w http.ResponseWriter, r *http.Request
 
 func (app *application) unfollowUserHandler(w http.ResponseWriter, r *http.Request) {
 	unfollowedUser := getUserFromContext(r)
-	// revert back to auth userID from ctx
-	var payload FollowUser
-	if err := readJSON(w, r, &payload); err != nil {
+	unfollowedID, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil {
 		app.badRequestResponse(w, r, err)
 		return
 	}
 
 	ctx := r.Context()
-	err := app.store.Followers.Unfollow(ctx, unfollowedUser.ID, payload.UserID)
+	err = app.store.Followers.Unfollow(ctx, unfollowedUser.ID, unfollowedID)
 	if err != nil {
 		app.internalServerErrorHandler(w, r, err)
 		return
@@ -88,8 +83,8 @@ func (app *application) userContextMiddleware(next http.Handler) http.Handler {
 		}
 		user, err := app.store.Users.GetByID(ctx, id)
 		if err != nil {
-			switch err {
-			case sql.ErrNoRows:
+			switch {
+			case errors.Is(err, sql.ErrNoRows):
 				app.notFoundResponse(w, r, err)
 			default:
 				app.badRequestResponse(w, r, err)

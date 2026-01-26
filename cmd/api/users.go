@@ -2,9 +2,6 @@ package main
 
 import (
 	"AwesomeProject/internal/store"
-	"context"
-	"database/sql"
-	"errors"
 	"net/http"
 	"strconv"
 
@@ -71,29 +68,6 @@ func (app *application) unfollowUserHandler(w http.ResponseWriter, r *http.Reque
 	if err := app.jsonResponse(w, http.StatusNoContent, nil); err != nil {
 		app.internalServerErrorHandler(w, r, err)
 	}
-}
-
-func (app *application) userContextMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		ctx := r.Context()
-		id, err := strconv.ParseInt(chi.URLParam(r, "userID"), 10, 64)
-		if err != nil {
-			app.badRequestResponse(w, r, err)
-			return
-		}
-		user, err := app.store.Users.GetByID(ctx, id)
-		if err != nil {
-			switch {
-			case errors.Is(err, sql.ErrNoRows):
-				app.notFoundResponse(w, r, err)
-			default:
-				app.badRequestResponse(w, r, err)
-			}
-			return
-		}
-		ctx = context.WithValue(ctx, userCtxKey, user)
-		next.ServeHTTP(w, r.WithContext(ctx))
-	})
 }
 
 func getUserFromContext(r *http.Request) *store.User {

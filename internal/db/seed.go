@@ -159,6 +159,9 @@ func generateUsers(count int) []*store.User {
 		users[i] = &store.User{
 			Username: usernames[i%len(usernames)] + strconv.Itoa(i),
 			Email:    usernames[i%len(usernames)] + strconv.Itoa(i) + "@gmail.com",
+			Role: store.Role{
+				Name: "user",
+			},
 		}
 	}
 	return users

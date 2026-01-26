@@ -1,6 +1,7 @@
 package main
 
 import (
+	"AwesomeProject/internal/store"
 	"context"
 	"encoding/base64"
 	"errors"
@@ -77,7 +78,54 @@ func (app *application) AuthTokenMiddleware(next http.Handler) http.Handler {
 		if err != nil {
 			app.unauthorizedErrorResponse(w, r, err)
 		}
-		ctx = context.WithValue(ctx, "user", user)
+		if user == nil {
+			app.unauthorizedErrorResponse(w, r, errors.New("user not found in middleware"))
+			return
+		}
+		app.logger.Infof("User ID: %d, Username: %s", userID, user.Username)
+		ctx = context.WithValue(r.Context(), userCtxKey, user)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
+}
+
+func (app *application) checkPostOwnership(requiredRole string, next http.HandlerFunc) http.HandlerFunc {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		user := getUserFromContext(r)
+		post := getPostFromContext(r)
+
+		if post == nil {
+			app.badRequestResponse(w, r, errors.New("post not found"))
+			return
+		}
+		if user == nil {
+			app.badRequestResponse(w, r, errors.New("user not found"))
+			return
+		}
+		if post.UserID == user.ID {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		// check roles
+		allowed, err := app.checkRolePrecedence(r.Context(), user, requiredRole)
+		if err != nil {
+			app.internalServerErrorHandler(w, r, err)
+			return
+		}
+		if !allowed {
+			app.methodNotAllowedResponse(w, r, errors.New("user not allowed"))
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
+}
+
+func (app *application) checkRolePrecedence(ctx context.Context, user *store.User, roleName string) (bool, error) {
+	role, err := app.store.Roles.GetByName(ctx, roleName)
+	if err != nil {
+		return false, err
+	}
+	isAllowed := user.RoleID >= role.ID
+	return isAllowed, nil
 }

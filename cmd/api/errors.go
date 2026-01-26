@@ -29,3 +29,8 @@ func (app *application) unauthorizedErrorResponse(w http.ResponseWriter, r *http
 	app.logger.Infof("Unauthorized Error %s path: %s error: %s", r.Method, r.URL.Path, err.Error())
 	writeJSONError(w, http.StatusUnauthorized, "Unauthorized Error")
 }
+
+func (app *application) methodNotAllowedResponse(w http.ResponseWriter, r *http.Request, err error) {
+	app.logger.Infof("Method Not Allowed Error %s path: %s error: %s", r.Method, r.URL.Path, err.Error())
+	writeJSONError(w, http.StatusMethodNotAllowed, "Method Not Allowed Error")
+}

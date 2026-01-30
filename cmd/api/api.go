@@ -4,7 +4,9 @@ import (
 	"AwesomeProject/docs"
 	"AwesomeProject/internal/auth"
 	"AwesomeProject/internal/mailer"
+	"AwesomeProject/internal/rateLimiter"
 	"AwesomeProject/internal/store"
+	"AwesomeProject/internal/store/cache"
 	"fmt"
 	"net/http"
 	"time"
@@ -17,11 +19,13 @@ import (
 )
 
 type application struct {
-	config config
-	store  *store.Storage
-	logger *zap.SugaredLogger
-	mailer mailer.Client
-	auth   auth.Authenticator
+	config       config
+	store        *store.Storage
+	cacheStorage *cache.Storage
+	logger       *zap.SugaredLogger
+	mailer       mailer.Client
+	auth         auth.Authenticator
+	rateLimiter  rateLimiter.Limiter
 }
 
 type config struct {
@@ -32,6 +36,15 @@ type config struct {
 	mail        mailConfig
 	frontendURL string
 	auth        authConfig
+	redis       redisConfig
+	rateLimiter rateLimiter.Config
+}
+
+type redisConfig struct {
+	addr    string
+	pw      string
+	db      int
+	enabled bool
 }
 
 type authConfig struct {
@@ -78,11 +91,11 @@ func (app *application) mount() *chi.Mux {
 	r.Use(middleware.RealIP)
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
-
+	r.Use(app.RateLimiterMiddleware)
 	r.Use(middleware.Timeout(60 * time.Second))
 
 	r.Route("/v1", func(r chi.Router) {
-		r.With(app.BasicAuthMiddleware()).Get("/health", app.healthCheckHandler)
+		r.With().Get("/health", app.healthCheckHandler)
 
 		docsUrl := fmt.Sprintf("%s/swagger/doc.json", app.config.address)
 		r.With(app.BasicAuthMiddleware()).Get("/swagger/*", httpSwagger.Handler(httpSwagger.URL(docsUrl)))

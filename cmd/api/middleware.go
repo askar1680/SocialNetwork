@@ -74,9 +74,10 @@ func (app *application) AuthTokenMiddleware(next http.Handler) http.Handler {
 			app.unauthorizedErrorResponse(w, r, err)
 		}
 		ctx := r.Context()
-		user, err := app.store.Users.GetByID(ctx, userID)
+		user, err := app.getUser(ctx, userID)
 		if err != nil {
 			app.unauthorizedErrorResponse(w, r, err)
+			return
 		}
 		if user == nil {
 			app.unauthorizedErrorResponse(w, r, errors.New("user not found in middleware"))
@@ -86,6 +87,28 @@ func (app *application) AuthTokenMiddleware(next http.Handler) http.Handler {
 		ctx = context.WithValue(r.Context(), userCtxKey, user)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
+}
+
+func (app *application) getUser(ctx context.Context, userID int64) (*store.User, error) {
+	if app.cacheStorage != nil {
+		user, err := app.cacheStorage.Users.Get(ctx, userID)
+		if err != nil {
+			return nil, err
+		}
+		if user != nil {
+			app.logger.Infof("Getting user from Redis with ID: %d", userID)
+			return user, nil
+		}
+	}
+	dbUser, err := app.store.Users.GetByID(ctx, userID)
+	if app.cacheStorage != nil {
+		app.logger.Infof("Setting user to Redis with ID: %d", userID)
+		_ = app.cacheStorage.Users.Set(ctx, dbUser)
+	}
+	if err != nil {
+		return nil, err
+	}
+	return dbUser, nil
 }
 
 func (app *application) checkPostOwnership(requiredRole string, next http.HandlerFunc) http.HandlerFunc {
@@ -128,4 +151,16 @@ func (app *application) checkRolePrecedence(ctx context.Context, user *store.Use
 	}
 	isAllowed := user.RoleID >= role.ID
 	return isAllowed, nil
+}
+
+func (app *application) RateLimiterMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if app.config.rateLimiter.Enabled {
+			if allow, retryAfter := app.rateLimiter.Allow(r.RemoteAddr); !allow {
+				app.rateLimitExceededResponse(w, r, retryAfter.String())
+				return
+			}
+			next.ServeHTTP(w, r)
+		}
+	})
 }

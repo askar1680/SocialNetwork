@@ -5,8 +5,12 @@ import (
 	"AwesomeProject/internal/db"
 	"AwesomeProject/internal/env"
 	"AwesomeProject/internal/mailer"
+	"AwesomeProject/internal/rateLimiter"
 	"AwesomeProject/internal/store"
+	"AwesomeProject/internal/store/cache"
 	"time"
+
+	"github.com/redis/go-redis/v9"
 
 	"go.uber.org/zap"
 )
@@ -66,6 +70,18 @@ func main() {
 				iss:    "social network",
 			},
 		},
+		redis: redisConfig{
+			addr:    env.GetString("REDIS_ADDR", "localhost:6379"),
+			pw:      env.GetString("REDIS_PASSWORD", ""),
+			db:      0,
+			enabled: env.GetBool("REDIS_ENABLED", true), // for now TRUE
+		},
+		rateLimiter: rateLimiter.Config{
+			// TODO: change it
+			RequestsPerTimeFrame: 20,
+			TimeFrame:            time.Second * 5,
+			Enabled:              true,
+		},
 	}
 	logger := zap.Must(zap.NewProduction()).Sugar()
 	defer logger.Sync()
@@ -77,6 +93,15 @@ func main() {
 	}
 	defer _db.Close()
 	logger.Info("Successfully connected to database")
+
+	// Cache
+	var rdb *redis.Client
+	if cfg.redis.enabled {
+		rdb = cache.NewRedisClient("127.0.0.1:6380", cfg.redis.pw, cfg.redis.db)
+		logger.Info("Successfully connected to redis cache")
+	}
+	cacheStorage := cache.NewRedisStorage(rdb)
+
 	_store := store.NewStorage(_db)
 
 	// mailer := mailer.NewSendGridMailer(cfg.mail.sendGrid.apiKey, cfg.mail.fromEmail)
@@ -86,12 +111,15 @@ func main() {
 	}
 
 	jwtAuthenticator := auth.NewJWTAuthenticator(cfg.auth.token.secret, cfg.auth.token.iss, cfg.auth.token.iss)
+	_rateLimiter := rateLimiter.NewFixedWindowRateLimiter(cfg.rateLimiter.RequestsPerTimeFrame, cfg.rateLimiter.TimeFrame)
 	app := &application{
-		config: cfg,
-		store:  &_store,
-		logger: logger,
-		mailer: mailer,
-		auth:   jwtAuthenticator,
+		config:       cfg,
+		store:        &_store,
+		cacheStorage: &cacheStorage,
+		logger:       logger,
+		mailer:       mailer,
+		auth:         jwtAuthenticator,
+		rateLimiter:  _rateLimiter,
 	}
 	mux := app.mount()
 	logger.Fatal(app.run(mux))

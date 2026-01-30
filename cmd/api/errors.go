@@ -34,3 +34,9 @@ func (app *application) methodNotAllowedResponse(w http.ResponseWriter, r *http.
 	app.logger.Infof("Method Not Allowed Error %s path: %s error: %s", r.Method, r.URL.Path, err.Error())
 	writeJSONError(w, http.StatusMethodNotAllowed, "Method Not Allowed Error")
 }
+
+func (app *application) rateLimitExceededResponse(w http.ResponseWriter, r *http.Request, message string) {
+	app.logger.Warnf("Rate Limit Exceeded Error %s path: %s", r.Method, r.URL.Path)
+	w.Header().Set("Retry-After", message)
+	writeJSONError(w, http.StatusTooManyRequests, "Retry after "+message)
+}

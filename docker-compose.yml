@@ -13,6 +13,34 @@ services:
     ports:
       - "5432:5432"
 
+  redis:
+    image: redis:6.2-alpine
+    container_name: redis
+    restart: unless-stopped
+    ports:
+      - "6380:6379" # внешний порт хоста -> внутренний 6379
+    command: [ "redis-server", "--save", "60", "1", "--loglevel", "warning" ]
+    networks:
+      - backend
+
+  redis-commander:
+    image: rediscommander/redis-commander:latest
+    container_name: redis-commander
+    hostname: redis-commander
+    restart: unless-stopped
+    environment:
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+    ports:
+      - "127.0.0.1:8081:8081"
+    depends_on:
+      - redis
+    networks:
+      - backend
+
+networks:
+  backend:
+    driver: bridge
+
 volumes:
   db-data:
-
